@@ -12,6 +12,8 @@ from usaspending_api.references.serializers_v2.autocomplete import RecipientAuto
 
 class BaseAutocompleteViewSet(APIView):
 
+    SIMILARITY_THRESHOLD = 0.3
+
     @staticmethod
     def get_request_payload(request):
         """
@@ -45,7 +47,7 @@ class BaseAutocompleteViewSet(APIView):
         queryset = Agency.objects.filter(subtier_agency__isnull=False)
 
         queryset = queryset.annotate(similarity=TrigramSimilarity('subtier_agency__name', search_text)). \
-            order_by(*order_list)
+            order_by(*order_list).filter(similarity__gt=self.SIMILARITY_THRESHOLD)
 
         exact_match_queryset = queryset.filter(similarity=1.0)
         if exact_match_queryset.count() > 0:
