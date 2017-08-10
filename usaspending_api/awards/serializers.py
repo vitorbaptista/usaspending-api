@@ -9,6 +9,18 @@ from usaspending_api.common.serializers import LimitableSerializer
 from usaspending_api.references.v1.serializers import AgencySerializer, LegalEntitySerializer, LocationSerializer, \
     CfdaSerializer
 from usaspending_api.references.v1.serializers import ProgramActivitySerializer, ObjectClassSerializer
+import serpy
+
+
+class NewAwardSerializer(serpy.Serializer):
+    id = serpy.IntField()
+    piid = serpy.StrField()
+    fain = serpy.StrField()
+    uri = serpy.StrField()
+    total_obligation = serpy.StrField()
+    description = serpy.StrField()
+    period_of_performance_start_date = serpy.StrField()
+    period_of_performance_current_end_date = serpy.StrField()
 
 
 class FinancialAccountsByAwardsSerializer(LimitableSerializer):
