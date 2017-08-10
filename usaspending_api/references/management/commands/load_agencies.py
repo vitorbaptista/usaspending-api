@@ -1,9 +1,34 @@
+from django.db import connection
 from django.core.management.base import BaseCommand, CommandError
 from usaspending_api.references.models import ToptierAgency, SubtierAgency, OfficeAgency, Agency
 import os
 import csv
 import logging
 import django
+
+MATVIEW_SQL = """
+    DROP MATERIALIZED VIEW IF EXISTS agency_by_subtier_and_optionally_toptier;
+    CREATE MATERIALIZED VIEW agency_by_subtier_and_optionally_toptier AS
+    WITH subq AS (
+        SELECT a.id,
+               s.subtier_code,
+               ''::TEXT AS cgac_code,
+               rank() OVER (PARTITION BY s.subtier_agency_id ORDER BY s.update_date DESC) AS update_rank
+        FROM   agency a
+        JOIN   subtier_agency s ON (s.subtier_agency_id = a.subtier_agency_id) )
+    SELECT subtier_code, cgac_code, id
+    FROM   subq
+    WHERE  update_rank = 1   -- forces only one row per subtier code
+    UNION ALL
+    SELECT
+           s.subtier_code,
+           t.cgac_code,
+           a.id
+    FROM   agency a
+    JOIN   subtier_agency s ON (s.subtier_agency_id = a.subtier_agency_id)
+    JOIN   toptier_agency t ON (t.toptier_agency_id = a.toptier_agency_id);
+    CREATE INDEX ON agency_by_subtier_and_optionally_toptier (subtier_code, cgac_code);
+    """
 
 
 class Command(BaseCommand):
@@ -29,6 +54,8 @@ class Command(BaseCommand):
                     subtier_name = row.get('SUBTIER NAME', '')
                     subtier_code = row.get('SUBTIER CODE', '')
                     subtier_abbr = row.get('SUBTIER ABBREVIATION', '')
+                    frec_code = row.get('FREC', '')
+                    frec_name = row.get('FREC ENTITY DESCRIPTION', '')
                     mission = row.get('MISSION', '')
                     website = row.get('WEBSITE', '')
                     icon_filename = row.get('ICON FILENAME', '')
@@ -40,7 +67,10 @@ class Command(BaseCommand):
                     # First, see if we have a toptier agency that matches our fpds and cgac codes
                     # We use only these codes here to make sure we are idempotent with previous
                     # versions of this agency loader
-                    toptier_agency, created = ToptierAgency.objects.get_or_create(cgac_code=cgac_code, fpds_code=fpds_code)
+                    toptier_agency, created = ToptierAgency.objects.get_or_create(
+                        cgac_code=cgac_code,
+                        fpds_code=fpds_code,
+                        frec_code=frec_code)
 
                     toptier_flag = (subtier_name == department_name)
 
@@ -49,6 +79,7 @@ class Command(BaseCommand):
                     toptier_agency.abbreviation = department_abbr
 
                     if toptier_flag:
+                        toptier_agency.frec_name = frec_name
                         toptier_agency.mission = mission
                         toptier_agency.website = website
                         toptier_agency.icon_filename = icon_filename
@@ -69,6 +100,9 @@ class Command(BaseCommand):
                                                                    subtier_agency=subtier_agency)
                     agency.toptier_flag = toptier_flag
                     agency.save()
+
+                with connection.cursor() as cursor:
+                    cursor.execute(MATVIEW_SQL)
 
         except IOError:
             self.logger.log("Could not open file to load from")
