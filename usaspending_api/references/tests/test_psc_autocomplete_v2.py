@@ -4,23 +4,32 @@ import pytest
 from model_mommy import mommy
 from rest_framework import status
 
-from usaspending_api.awards.models import TransactionContract
+from usaspending_api.broker.models import DetachedAwardProcurement
+from usaspending_api.etl.broker_etl_helpers import PhonyCursor
 
 
 @pytest.fixture
 def budget_function_data(db):
     mommy.make(
-        TransactionContract,
-        product_or_service_code="12121212")
+        DetachedAwardProcurement,
+        product_or_service_code="12121212",
+        product_or_service_co_desc="testA"
+        )
     mommy.make(
-        TransactionContract,
-        product_or_service_code="23232323")
+        DetachedAwardProcurement,
+        product_or_service_code="23232323",
+        product_or_service_co_desc="testB"
+    )
     mommy.make(
-        TransactionContract,
-        product_or_service_code="34343434")
+        DetachedAwardProcurement,
+        product_or_service_code="34343434",
+        product_or_service_co_desc="testC"
+    )
     mommy.make(
-        TransactionContract,
-        product_or_service_code="34343434")
+        DetachedAwardProcurement,
+        product_or_service_code="34343434",
+        product_or_service_co_desc="testC"
+    )
 
 
 @pytest.mark.django_db
@@ -34,6 +43,14 @@ def test_naics_autocomplete_success(client, budget_function_data):
     assert resp.status_code == status.HTTP_200_OK
     assert len(resp.data['results']) == 1
     assert resp.data['results'][0]['product_or_service_code'] == '12121212'
+
+    resp = client.post(
+        '/api/v2/autocomplete/psc/',
+        content_type='application/json',
+        data=json.dumps({'search_text': 'testb'}))
+    assert resp.status_code == status.HTTP_200_OK
+    assert len(resp.data['results']) == 1
+    assert resp.data['results'][0]['product_or_service_code'] == '23232323'
 
     # test for similar matches (with no duplicates)
     resp = client.post(

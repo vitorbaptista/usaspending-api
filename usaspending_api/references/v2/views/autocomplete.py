@@ -8,6 +8,7 @@ from usaspending_api.awards.models import LegalEntity, TreasuryAppropriationAcco
 from usaspending_api.common.exceptions import InvalidParameterException
 from usaspending_api.references.models import Agency, Cfda
 from usaspending_api.references.v1.serializers import AgencySerializer
+from usaspending_api.broker.models import DetachedAwardProcurement
 
 
 class BaseAutocompleteViewSet(APIView):
@@ -180,11 +181,15 @@ class PSCAutocompleteViewSet(BaseAutocompleteViewSet):
         search_text, limit = self.get_request_payload(request)
 
         # get relevant TransactionContracts
-        queryset = TransactionContract.objects.filter(product_or_service_code__isnull=False)
+        queryset = queryset = DetachedAwardProcurement.objects.using('data_broker').filter(
+            product_or_service_code__isnull=False,
+            product_or_service_co_desc__isnull=False)
+
         # Filter based on search text
         response = {}
 
-        queryset = queryset.annotate(similarity=TrigramSimilarity('product_or_service_code', search_text))\
+        queryset = queryset.annotate(similarity=Greatest(TrigramSimilarity('product_or_service_code', search_text),
+                                                         TrigramSimilarity('product_or_service_co_desc', search_text)))\
             .distinct().order_by('-similarity')
 
         # look for exact match
@@ -194,8 +199,8 @@ class PSCAutocompleteViewSet(BaseAutocompleteViewSet):
                 queryset = psc_exact_match_queryset
 
         # craft results
-        results_set = list(queryset.values('product_or_service_code')[:limit]) if limit else list(
-            queryset.values('product_or_service_code'))
+        results_set = list(queryset.values('product_or_service_code', 'product_or_service_co_desc')[:limit]) if limit else list(
+            queryset.values('product_or_service_code', 'product_or_service_co_desc'))
         response['results'] = results_set
 
         return Response(response)
