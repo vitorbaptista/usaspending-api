@@ -398,7 +398,7 @@ def load_file_d2(submission_attributes, award_financial_assistance_data, db_curs
             value_map=fad_value_map,
             as_dict=True)
 
-        transaction_assistance = TransactionAssistance.get_or_create(transaction=transaction, **financial_assistance_data)
+        transaction_assistance = TransactionAssistance.get_or_create_2(transaction=transaction, **financial_assistance_data)
         transaction_assistance.save()
 
     logger.info('\n\n\n\nFile D2 time elapsed: {}'.format(time.time() - d_start_time))
@@ -529,7 +529,7 @@ def get_or_create_location(location_map, row, location_value_map=None):
     del location_data['data_source']  # hacky way to ensure we don't create a series of empty location records
     if len(location_data):
         try:
-            if location_data == {"place_of_performance_flag": True}:
+            if len(location_data) == 1 and "place_of_performance_flag" in location_data and location_data["place_of_performance_flag"]:
                 location_object, created = Location.objects.get_or_create(**location_data, defaults={'data_source': 'DBR'})
             else:
                 location_object = Location.objects.create(**location_data)
