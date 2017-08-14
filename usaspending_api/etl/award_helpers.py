@@ -1,7 +1,11 @@
+import logging
 from django.db import connection
 
 from usaspending_api.awards.models import Transaction, Award, Agency
 from django.db.models import Case, Value, When, TextField
+
+
+logger = logging.getLogger('console')
 
 
 def update_awards(award_tuple=None):
@@ -209,25 +213,32 @@ def get_award_financial_transaction(row):
 
     if row.fain is not None:
         # this is an assistance award id'd by fain
+        logger.info("assistance_data__fain call")
         txn = Transaction.objects.filter(
             awarding_agency__toptier_agency__cgac_code=row.agency_identifier,
             assistance_data__fain=row.fain) \
-            .order_by('-action_date').first()
-
+            .order_by('-action_date')
+        logger.info(txn.query)
+        txn = txn.first()
     elif row.uri is not None:
         # this is an assistance award id'd by uri
+        logger.info("assistance_data__uri call")
         txn = Transaction.objects.filter(
             awarding_agency__toptier_agency__cgac_code=row.agency_identifier,
             assistance_data__uri=row.uri) \
-            .order_by('-action_date').first()
-
+            .order_by('-action_date')
+        logger.info(txn.query)
+        txn = txn.first()
     else:
         # this is a contract award
+        logger.info("contract_data__piid call")
         txn = Transaction.objects.filter(
             awarding_agency__toptier_agency__cgac_code=row.agency_identifier,
             contract_data__piid=row.piid,
             contract_data__parent_award_id=row.parent_award_id) \
-            .order_by('-action_date').first()
+            .order_by('-action_date')
+        logger.info(txn.query)
+        txn = txn.first()
 
     return txn
 
