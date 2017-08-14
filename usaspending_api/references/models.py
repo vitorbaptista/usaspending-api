@@ -394,7 +394,7 @@ class LegalEntity(DataSourceTrackedModel):
     '''
     business_categories = ArrayField(models.TextField(), default=list)
 
-    recipient_unique_id = models.TextField(blank=True, null=True, verbose_name="DUNS Number")
+    recipient_unique_id = models.TextField(blank=True, null=True, verbose_name="DUNS Number", db_index=True)
     limited_liability_corporation = models.TextField(blank=True, null=True)
     sole_proprietorship = models.TextField(blank=True, null=True)
     partnership_or_limited_liability_partnership = models.TextField(blank=True, null=True)
@@ -500,7 +500,6 @@ class LegalEntity(DataSourceTrackedModel):
     small_business = models.TextField(blank=True, null=True)
     small_business_description = models.TextField(blank=True, null=True)
     individual = models.TextField(blank=True, null=True)
-    test_unique_id = models.TextField(blank=True, null=True, verbose_name="DUNS Number")
 
     def save(self, *args, **kwargs):
         LegalEntity.update_business_type_categories(self)
