@@ -616,14 +616,14 @@ def load_file_c(submission_attributes, db_cursor, award_financial_frame):
     piid_join = transactions_df["contract_data__piid"] == award_financial_frame["piid"]
     parent_award_id_join = transactions_df["contract_data__parent_award_id"] == award_financial_frame["parent_award_id"]
 
-    case_1 = transactions_df[agency_identifier_join | fain_join]
-    case_2 = transactions_df[agency_identifier_join | fain_join]
-    case_3 = transactions_df[agency_identifier_join | fain_join]
-
-    txn = transactions_df[]
+    case_1 = transactions_df[agency_identifier_join & fain_join]
+    case_2 = transactions_df[agency_identifier_join & uri_join]
+    case_3 = transactions_df[agency_identifier_join & piid_join & parent_award_id_join]
 
     logger.info("txn call")
-    award_financial_frame['txn'] = award_financial_frame.apply(get_award_financial_transaction, axis=1)
+    award_financial_frame[agency_identifier_join & fain_join, 'txn'] = case_1['txn']
+    award_financial_frame[agency_identifier_join & uri_join, 'txn'] = case_2['txn']
+    award_financial_frame[agency_identifier_join & piid_join & parent_award_id_join, 'txn'] = case_3['txn']
     logger.info("awarding_agency call")
     award_financial_frame['awarding_agency'] = award_financial_frame.apply(get_awarding_agency, axis=1)
     logger.info("object_class call")
