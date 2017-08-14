@@ -608,9 +608,13 @@ def load_file_c(submission_attributes, db_cursor, award_financial_frame):
     # rows = row numbers skipped, corresponding to the original row numbers in the file that was submitted
     skipped_tas = {}
 
+    logger.info("txn call")
     award_financial_frame['txn'] = award_financial_frame.apply(get_award_financial_transaction, axis=1)
+    logger.info("awarding_agency call")
     award_financial_frame['awarding_agency'] = award_financial_frame.apply(get_awarding_agency, axis=1)
+    logger.info("object_class call")
     award_financial_frame['object_class'] = award_financial_frame.apply(get_or_create_object_class_rw, axis=1, logger=logger)
+    logger.info("program_activity call")
     award_financial_frame['program_activity'] = award_financial_frame.apply(get_or_create_program_activity, axis=1, submission_attributes=submission_attributes)
 
     total_rows = award_financial_frame.shape[0]
