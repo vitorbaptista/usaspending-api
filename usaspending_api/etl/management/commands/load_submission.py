@@ -608,6 +608,20 @@ def load_file_c(submission_attributes, db_cursor, award_financial_frame):
     # rows = row numbers skipped, corresponding to the original row numbers in the file that was submitted
     skipped_tas = {}
 
+    transactions_query = 'SELECT * FROM transaction ORDER BY transaction.action_date'
+    transactions_df = pd.read_sql(transactions_query, connections['data_broker'])
+    agency_identifier_join = transactions_df["awarding_agency__toptier_agency__cgac_code"] == award_financial_frame["agency_identifier"]
+    fain_join = transactions_df["assistance_data__fain"] == award_financial_frame["fain"]
+    uri_join = transactions_df["assistance_data__uri"] == award_financial_frame["uri"]
+    piid_join = transactions_df["contract_data__piid"] == award_financial_frame["piid"]
+    parent_award_id_join = transactions_df["contract_data__parent_award_id"] == award_financial_frame["parent_award_id"]
+
+    case_1 = transactions_df[agency_identifier_join | fain_join]
+    case_2 = transactions_df[agency_identifier_join | fain_join]
+    case_3 = transactions_df[agency_identifier_join | fain_join]
+
+    txn = transactions_df[]
+
     logger.info("txn call")
     award_financial_frame['txn'] = award_financial_frame.apply(get_award_financial_transaction, axis=1)
     logger.info("awarding_agency call")
