@@ -529,7 +529,11 @@ def get_or_create_location(location_map, row, location_value_map=None):
     del location_data['data_source']  # hacky way to ensure we don't create a series of empty location records
     if len(location_data):
         try:
-            location_object, created = Location.objects.get_or_create(**location_data, defaults={'data_source': 'DBR'})
+            if location_data == {"place_of_performance_flag": True}:
+                location_object, created = Location.objects.get_or_create(**location_data, defaults={'data_source': 'DBR'})
+            else:
+                location_object = Location.objects.create(**location_data)
+                created = True
         except MultipleObjectsReturned:
             # incoming location data is so sparse that comparing it to existing locations
             # yielded multiple records. create a new location with this limited info.
