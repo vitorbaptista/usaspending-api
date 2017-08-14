@@ -72,7 +72,6 @@ class Command(BaseCommand):
 
         self.logger.info('Getting childless submissions')
         potentially_childless = self.instances_potentially_left_childless(submission)
-        print('done')
 
         deleted = defaultdict(int)
         deleted_total = 0
