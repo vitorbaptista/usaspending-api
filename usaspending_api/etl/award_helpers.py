@@ -238,6 +238,7 @@ def get_awarding_agency(row):
         # info and pass it get_or_create_summary_award
         import logging
         logger = logging.getLogger('console')
+        row.txn['awarding_agency'] = Agency.objects.get(id=row.txn['awarding_agency'])
         logger.info("txn['awarding_agency']: {}".format(row.txn['awarding_agency']))
         return row.txn['awarding_agency']
     else:
