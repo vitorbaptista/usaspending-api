@@ -152,7 +152,7 @@ class ToptierAgency(models.Model):
     toptier_agency_id = models.AutoField(primary_key=True)
     create_date = models.DateTimeField(auto_now_add=True, blank=True, null=True)
     update_date = models.DateTimeField(auto_now=True, null=True)
-    cgac_code = models.TextField(blank=True, null=True, verbose_name="Top-Tier Agency Code")
+    cgac_code = models.TextField(blank=True, null=True, verbose_name="Top-Tier Agency Code", db_index=True)
     fpds_code = models.TextField(blank=True, null=True)
     abbreviation = models.TextField(blank=True, null=True, verbose_name="Agency Abbreviation")
     name = models.TextField(blank=True, null=True, verbose_name="Top-Tier Agency Name")

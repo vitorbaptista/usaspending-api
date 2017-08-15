@@ -331,7 +331,7 @@ class TransactionContract(DataSourceTrackedModel):
         Transaction, on_delete=models.CASCADE,
         primary_key=True, related_name='contract_data', help_text="Non-specific transaction data, fields shared among both assistance and contract transactions")
     submission = models.ForeignKey(SubmissionAttributes, models.CASCADE)
-    piid = models.TextField(blank=True, help_text="The PIID of this transaction")
+    piid = models.TextField(blank=True, help_text="The PIID of this transaction", db_index=True)
     parent_award_id = models.TextField(blank=True, null=True, verbose_name="Parent Award ID", help_text="The parent award id for this transaction. This is generally the piid of an IDV")
     cost_or_pricing_data = models.TextField(blank=True, null=True, help_text="")
     cost_or_pricing_data_description = models.TextField(blank=True, null=True)
@@ -458,8 +458,8 @@ class TransactionAssistance(DataSourceTrackedModel):
         Transaction, on_delete=models.CASCADE,
         primary_key=True, related_name='assistance_data')
     submission = models.ForeignKey(SubmissionAttributes, models.CASCADE)
-    fain = models.TextField(blank=True, null=True)
-    uri = models.TextField(blank=True, null=True)
+    fain = models.TextField(blank=True, null=True, db_index=True)
+    uri = models.TextField(blank=True, null=True, db_index=True)
     cfda = models.ForeignKey(Cfda, models.DO_NOTHING, related_name="related_assistance", null=True)
     business_funds_indicator = models.TextField()
     business_funds_indicator_description = models.TextField(blank=True, null=True)
