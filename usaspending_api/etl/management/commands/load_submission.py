@@ -5,7 +5,7 @@ import signal
 import sys
 
 from django.core.management import call_command
-from django.db import connections, transaction
+from django.db import connections, transaction, DEFAULT_DB_ALIAS
 from django.db.models import Q
 from django.core.cache import caches
 import pandas as pd
@@ -608,8 +608,9 @@ def load_file_c(submission_attributes, db_cursor, award_financial_frame):
     # rows = row numbers skipped, corresponding to the original row numbers in the file that was submitted
     skipped_tas = {}
 
+
     transactions_query = 'SELECT * FROM transaction ORDER BY transaction.action_date'
-    transactions_df = pd.read_sql(transactions_query, connections['data_broker'])
+    transactions_df = pd.read_sql(transactions_query, connections[DEFAULT_DB_ALIAS])
     agency_identifier_join = transactions_df["awarding_agency__toptier_agency__cgac_code"] == award_financial_frame["agency_identifier"]
     fain_join = transactions_df["assistance_data__fain"] == award_financial_frame["fain"]
     uri_join = transactions_df["assistance_data__uri"] == award_financial_frame["uri"]
