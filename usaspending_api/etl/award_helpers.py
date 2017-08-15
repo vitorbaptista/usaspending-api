@@ -211,7 +211,7 @@ def get_award_financial_transaction(row):
         # this is an assistance award id'd by fain
         txn = Transaction.objects.filter(
             awarding_agency__toptier_agency__cgac_code=row.agency_identifier,
-            fain=row.fain) \
+            assistance_data__fain=row.fain) \
             .order_by('-action_date').values("awarding_agency").first()
 
     elif row.uri is not None:
