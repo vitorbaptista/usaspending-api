@@ -236,11 +236,7 @@ def get_awarding_agency(row):
     if row.txn:
         # We found a matching transaction, so grab its awarding agency
         # info and pass it get_or_create_summary_award
-        import logging
-        logger = logging.getLogger('console')
-        row.txn['awarding_agency'] = Agency.objects.get(id=row.txn['awarding_agency'])
-        logger.info("txn['awarding_agency']: {}".format(row.txn['awarding_agency']))
-        return row.txn['awarding_agency']
+        return Agency.objects.get(id=row.txn['awarding_agency'])
     else:
         # No matching transaction found, so find/create Award by using
         # topiter agency only, since CGAC code is the only piece of
