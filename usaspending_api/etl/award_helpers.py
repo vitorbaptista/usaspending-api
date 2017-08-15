@@ -1,6 +1,6 @@
 from django.db import connection
 
-from usaspending_api.awards.models import Transaction, Award, Agency
+from usaspending_api.awards.models import Transaction, Award, Agency, TransactionAssistance, TransactionContract
 from django.db.models import Case, Value, When, TextField
 
 
@@ -211,15 +211,15 @@ def get_award_financial_transaction(row):
         # this is an assistance award id'd by fain
         txn = Transaction.objects.filter(
             awarding_agency__toptier_agency__cgac_code=row.agency_identifier,
-            assistance_data__fain=row.fain) \
-            .order_by('-action_date').first()
+            fain=row.fain) \
+            .order_by('-action_date').values("awarding_agency").first()
 
     elif row.uri is not None:
         # this is an assistance award id'd by uri
         txn = Transaction.objects.filter(
             awarding_agency__toptier_agency__cgac_code=row.agency_identifier,
             assistance_data__uri=row.uri) \
-            .order_by('-action_date').first()
+            .order_by('-action_date').values("awarding_agency").first()
 
     else:
         # this is a contract award
@@ -227,7 +227,7 @@ def get_award_financial_transaction(row):
             awarding_agency__toptier_agency__cgac_code=row.agency_identifier,
             contract_data__piid=row.piid,
             contract_data__parent_award_id=row.parent_award_id) \
-            .order_by('-action_date').first()
+            .order_by('-action_date').values("awarding_agency").first()
 
     return txn
 
