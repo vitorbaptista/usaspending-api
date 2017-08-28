@@ -178,17 +178,23 @@ def load_file_d1(submission_attributes, procurement_data, db_cursor, quick=False
         # If awarding toptier agency code (aka CGAC) is not supplied on the D1 record,
         # use the sub tier code to look it up. This code assumes that all incoming
         # records will supply an awarding subtier agency code
+        print('awarding_agency_code: {}'.format(row['awarding_agency_code']))
         if row['awarding_agency_code'] is None or len(row['awarding_agency_code'].strip()) < 1:
+            print('Looking up by subtier agency code...')
             row['awarding_agency_code'] = Agency.get_by_subtier(
                 row["awarding_sub_tier_agency_c"]).toptier_agency.cgac_code
+            print('Looked up {} by subtier {}'.format(row['awarding_sub_tier_agency_c'], row['awarding_agency_code']))
         # If funding toptier agency code (aka CGAC) is empty, try using the sub
         # tier funding code to look it up. Unlike the awarding agency, we can't
         # assume that the funding agency subtier code will always be present.
         if row['funding_agency_code'] is None or len(row['funding_agency_code'].strip()) < 1:
+            print('Looking up by subtier funding code...')
             funding_agency = Agency.get_by_subtier(row["funding_sub_tier_agency_co"])
+            print('Looked up {} by subtier funding code {}'.format(funding_agency, row['funding_sub_tier_agency_co']))
             row['funding_agency_code'] = (
                 funding_agency.toptier_agency.cgac_code if funding_agency is not None
                 else None)
+            print('Final lookup {}'.format(row['funding_agency_code']))
 
         # Find the award that this award transaction belongs to. If it doesn't exist, create it.
         awarding_agency = Agency.get_by_toptier_subtier(
