@@ -173,7 +173,8 @@ class SpendingByCategoryVisualizationViewSet(APIView):
             return Response(response)
 
         elif category == "funding_agency":
-            potential_scopes = ["agency", "subagency", "offices"]
+            # TODO: Add "offices" to the list below when office_agency is included
+            potential_scopes = ["agency", "subagency"]
             if scope not in potential_scopes:
                 raise InvalidParameterException('scope does not have a valid value')
             # filter the transactions by scope name
