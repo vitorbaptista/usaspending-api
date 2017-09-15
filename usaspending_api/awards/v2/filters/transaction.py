@@ -1,13 +1,14 @@
 from usaspending_api.awards.models import Transaction
 from usaspending_api.common.exceptions import InvalidParameterException
 
+import datetime
 import logging
 logger = logging.getLogger(__name__)
 
 
 # TODO: Performance when multiple false values are initially provided
 def transaction_filter(filters):
-
+    start_time = datetime.datetime.now()
     queryset = Transaction.objects.all()
     for key, value in filters.items():
         # check for valid key
@@ -283,4 +284,5 @@ def transaction_filter(filters):
             if or_queryset is not None:
                 queryset &= or_queryset
 
+    # print("pre_filter_time: {}, post_filter_time: {}, pre_sql_eval_time: {}, post_sql_eval_time: {}, pre_retval_format_time: {}, final: {}".format(str(pre_filter_time - start_time), str(post_filter_time - start_time), str(pre_sql_eval_time-start_time), str(post_sql_eval_time-start_time), str(pre_retval_format_time - start_time), str(return_time-start_time)))
     return queryset

@@ -12,6 +12,7 @@ from usaspending_api.awards.v2.lookups.lookups import award_contracts_mapping, c
     loan_award_mapping, non_loan_assistance_award_mapping, non_loan_assistance_type_mapping
 
 import ast
+import datetime
 from usaspending_api.common.helpers import generate_fiscal_year, generate_fiscal_period, generate_fiscal_month, \
     get_pagination
 
@@ -23,6 +24,9 @@ class SpendingOverTimeVisualizationViewSet(APIView):
 
     def post(self, request):
         """Return all budget function/subfunction titles matching the provided search text"""
+        # Timestamp section
+        start_time = datetime.datetime.now()
+
         json_request = request.data
         group = json_request.get("group", None)
         filters = json_request.get("filters", None)
@@ -36,7 +40,9 @@ class SpendingOverTimeVisualizationViewSet(APIView):
             raise InvalidParameterException("group does not have a valid value")
 
         # build sql query filters
+        pre_filter_time = datetime.datetime.now()
         queryset = transaction_filter(filters)
+        post_filter_time = datetime.datetime.now()
         # define what values are needed in the sql query
         queryset = queryset.values("action_date", "federal_action_obligation")
 
@@ -46,8 +52,14 @@ class SpendingOverTimeVisualizationViewSet(APIView):
         # filter queryset by time
         group_results = OrderedDict()  # list of time_period objects ie {"fy": "2017", "quarter": "3"} : 1000
         queryset = queryset.order_by("action_date").values("action_date", "federal_action_obligation")
-
+        pre_sql_eval_time = datetime.datetime.now()
+        print(queryset._result_cache is None)
+        print(queryset.query)
         for trans in queryset:
+            test = True
+            if test:
+                post_sql_eval_time = datetime.datetime.now()
+                test = False
             key = {}
             if group == "fy" or group == "fiscal_year":
                 fy = generate_fiscal_year(trans["action_date"])
@@ -69,7 +81,7 @@ class SpendingOverTimeVisualizationViewSet(APIView):
                     group_results[key] = group_results.get(key) + trans["federal_action_obligation"]
                 else:
                     group_results[key] = group_results.get(key)
-
+        pre_retval_format_time = datetime.datetime.now()
         # convert result into expected format
         results = []
         # Expected results structure
@@ -82,7 +94,8 @@ class SpendingOverTimeVisualizationViewSet(APIView):
             result = {"time_period": key_dict, "aggregated_amount": float(value)}
             results.append(result)
         response["results"] = results
-
+        return_time = datetime.datetime.now()
+        print("pre_filter_time: {}, post_filter_time: {}, pre_sql_eval_time: {}, post_sql_eval_time: {}, pre_retval_format_time: {}, final: {}".format(str(pre_filter_time - start_time), str(post_filter_time - start_time), str(pre_sql_eval_time-start_time), str(post_sql_eval_time-start_time), str(pre_retval_format_time - start_time), str(return_time-start_time)))
         return Response(response)
 
 
