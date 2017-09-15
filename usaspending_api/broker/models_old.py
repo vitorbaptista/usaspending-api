@@ -1,85 +1,11 @@
 from django.db import models
-from simple_history.models import HistoricalRecords
-from usaspending_api.awards.models import Award
-from usaspending_api.references.models import Agency, LegalEntity, Location
-from usaspending_api.common.helpers import fy
 
 
-class TransactionNew(models.Model):
-    award = models.ForeignKey(Award, models.CASCADE, help_text="The award which this transaction is contained in")
-    usaspending_unique_transaction_id = models.TextField(blank=True, null=True, help_text="If this record is legacy USASpending data, this is the unique transaction identifier from that system")
-    # submission = models.ForeignKey(SubmissionAttributes, models.CASCADE, help_text="The submission which created this record")
-    type = models.TextField(verbose_name="Action Type", null=True, help_text="The type for this transaction. For example, A, B, C, D", db_index=True)
-    type_description = models.TextField(blank=True, verbose_name="Action Type Description", null=True, help_text="The plain text description of the transaction type")
-    period_of_performance_start_date = models.DateField(verbose_name="Period of Performance Start Date", null=True, help_text="The period of performance start date")
-    period_of_performance_current_end_date = models.DateField(verbose_name="Period of Performance Current End Date", null=True, help_text="The current end date of the period of performance")
-    action_date = models.DateField(verbose_name="Transaction Date", help_text="The date this transaction was actioned", db_index=True)
-    action_type = models.TextField(blank=True, null=True, help_text="The type of transaction. For example, A, B, C, D")
-    action_type_description = models.TextField(blank=True, null=True)
-    federal_action_obligation = models.DecimalField(max_digits=20, db_index=True, decimal_places=2, blank=True, null=True, help_text="The obligation of the federal government for this transaction")
-    modification_number = models.TextField(blank=True, null=True, verbose_name="Modification Number", help_text="The modification number for this transaction")
-    awarding_agency = models.ForeignKey(Agency, related_name='%(app_label)s_%(class)s_awarding_agency', null=True, help_text="The agency which awarded this transaction")
-    funding_agency = models.ForeignKey(Agency, related_name='%(app_label)s_%(class)s_funding_agency', null=True, help_text="The agency which is funding this transaction")
-    recipient = models.ForeignKey(LegalEntity, null=True, help_text="The recipient for this transaction")
-    description = models.TextField(null=True, help_text="The description of this transaction")
-    place_of_performance = models.ForeignKey(Location, null=True, help_text="The location where the work on this transaction was performed")
-    drv_award_transaction_usaspend = models.DecimalField(max_digits=20, decimal_places=2, blank=True, null=True)
-    drv_current_total_award_value_amount_adjustment = models.DecimalField(max_digits=20, decimal_places=2, blank=True, null=True)
-    drv_potential_total_award_value_amount_adjustment = models.DecimalField(max_digits=20, decimal_places=2, blank=True, null=True)
-    last_modified_date = models.DateField(blank=True, null=True, help_text="The date this transaction was last modified")
-    certified_date = models.DateField(blank=True, null=True, help_text="The date this transaction was certified")
-    create_date = models.DateTimeField(auto_now_add=True, blank=True, null=True, help_text="The date this transaction was created in the API")
-    update_date = models.DateTimeField(auto_now=True, null=True, help_text="The last time this transaction was updated in the API")
-    fiscal_year = models.IntegerField(blank=True, null=True, help_text="Fiscal Year calculated based on Action Date")
-    history = HistoricalRecords()
-
-    def __str__(self):
-        return '%s award: %s' % (self.type_description, self.award)
-
-    def newer_than(self, dct):
-        """Compares age of this instance to a Python dictionary
-
-        Determines the age of each by last_modified_date, if set,
-        otherwise action_date.
-        Returns `False` if either side lacks a date completely.
-        """
-
-        my_date = self.last_modified_date
-        their_date = dct.get('last_modified_date')
-        if my_date and their_date:
-            return my_date > their_date
-        else:
-            return False
-
-    @classmethod
-    def get_or_create_transaction(cls, **kwargs):
-        """Gets and updates, or creates, a Transaction
-
-        Transactions must be unique on Award, Awarding Agency, and Mod Number
-        """
-        transaction = cls.objects.filter(
-            award=kwargs.get('award'),
-            modification_number=kwargs.get('modification_number')
-        ).order_by('-update_date').first()
-        if transaction:
-            if not transaction.newer_than(kwargs):
-                for (k, v) in kwargs.items():
-                    setattr(transaction, k, v)
-            return transaction
-        return cls(**kwargs)
-
-    def save(self, *args, **kwargs):
-        self.fiscal_year = fy(self.action_date)
-        super().save(*args, **kwargs)
-
-    class Meta:
-        db_table = 'transaction_new'
-        index_together = ['award', 'action_date']
-
-
-class TransactionContractNew(models.Model):
+class DetachedAwardProcurement(models.Model):
+    created_at = models.DateTimeField(blank=True, null=True)
+    updated_at = models.DateTimeField(blank=True, null=True)
     detached_award_procurement_id = models.AutoField(primary_key=True)
-    detached_award_proc_unique = models.TextField(unique=True, null=False)
+    detached_award_proc_unique = models.TextField(unique=True)
     piid = models.TextField(blank=True, null=True)
     agency_id = models.TextField(blank=True, null=True)
     awarding_sub_tier_agency_c = models.TextField(blank=True, null=True)
@@ -120,7 +46,7 @@ class TransactionContractNew(models.Model):
     action_date = models.TextField(blank=True, null=True)
     action_type = models.TextField(blank=True, null=True)
     action_type_description = models.TextField(blank=True, null=True)
-    federal_action_obligation = models.IntegerField(blank=True, null=True)
+    federal_action_obligation = models.DecimalField(max_digits=23, decimal_places=2, blank=True, null=True)
     current_total_value_award = models.TextField(blank=True, null=True)
     potential_total_value_awar = models.TextField(blank=True, null=True)
     funding_sub_tier_agency_co = models.TextField(blank=True, null=True)
@@ -333,32 +259,18 @@ class TransactionContractNew(models.Model):
     undefinitized_action_desc = models.TextField(blank=True, null=True)
     domestic_or_foreign_entity = models.TextField(blank=True, null=True)
     domestic_or_foreign_e_desc = models.TextField(blank=True, null=True)
-    annual_revenue = models.TextField(blank=True, null=True)
-    division_name = models.TextField(blank=True, null=True)
-    division_number_or_office = models.TextField(blank=True, null=True)
-    number_of_employees = models.TextField(blank=True, null=True)
-    vendor_alternate_name = models.TextField(blank=True, null=True)
-    vendor_alternate_site_code = models.TextField(blank=True, null=True)
-    vendor_enabled = models.TextField(blank=True, null=True)
-    vendor_legal_org_name = models.TextField(blank=True, null=True)
-    vendor_location_disabled_f = models.TextField(blank=True, null=True)
-    vendor_site_code = models.TextField(blank=True, null=True)
     pulled_from = models.TextField(blank=True, null=True)
     last_modified = models.TextField(blank=True, null=True)
-    initial_report_date = models.TextField(blank=True, null=True)
-
-    # Timestamp field auto generated by broker
-    created_at = models.DateTimeField(blank=True, null=True)
-    updated_at = models.DateTimeField(blank=True, null=True)
 
     class Meta:
         managed = False
         db_table = 'detached_award_procurement'
 
 
-class TransactionAssistanceNew(models.Model):
+class PublishedAwardFinancialAssistance(models.Model):
+    created_at = models.DateTimeField(blank=True, null=True)
+    updated_at = models.DateTimeField(blank=True, null=True)
     published_award_financial_assistance_id = models.AutoField(primary_key=True)
-    afa_generated_unique = models.TextField(blank=True, null=False)
     action_date = models.TextField(blank=True, null=True)
     action_type = models.TextField(blank=True, null=True)
     assistance_type = models.TextField(blank=True, null=True)
@@ -366,71 +278,54 @@ class TransactionAssistanceNew(models.Model):
     awardee_or_recipient_legal = models.TextField(blank=True, null=True)
     awardee_or_recipient_uniqu = models.TextField(blank=True, null=True)
     awarding_agency_code = models.TextField(blank=True, null=True)
-    awarding_agency_name = models.TextField(blank=True, null=True)
     awarding_office_code = models.TextField(blank=True, null=True)
     awarding_sub_tier_agency_c = models.TextField(blank=True, null=True)
-    awarding_sub_tier_agency_n = models.TextField(blank=True, null=True)
     award_modification_amendme = models.TextField(blank=True, null=True)
     business_funds_indicator = models.TextField(blank=True, null=True)
     business_types = models.TextField(blank=True, null=True)
     cfda_number = models.TextField(blank=True, null=True)
-    cfda_title = models.TextField(blank=True, null=True)
     correction_late_delete_ind = models.TextField(blank=True, null=True)
     face_value_loan_guarantee = models.DecimalField(max_digits=23, decimal_places=2, blank=True, null=True)
     fain = models.TextField(blank=True, null=True)
     federal_action_obligation = models.DecimalField(max_digits=23, decimal_places=2, blank=True, null=True)
     fiscal_year_and_quarter_co = models.TextField(blank=True, null=True)
     funding_agency_code = models.TextField(blank=True, null=True)
-    funding_agency_name = models.TextField(blank=True, null=True)
     funding_office_code = models.TextField(blank=True, null=True)
     funding_sub_tier_agency_co = models.TextField(blank=True, null=True)
-    funding_sub_tier_agency_na = models.TextField(blank=True, null=True)
-    is_active = models.BooleanField(null=False, default=False)
-    is_historical = models.NullBooleanField()
     legal_entity_address_line1 = models.TextField(blank=True, null=True)
     legal_entity_address_line2 = models.TextField(blank=True, null=True)
     legal_entity_address_line3 = models.TextField(blank=True, null=True)
-    legal_entity_city_name = models.TextField(blank=True, null=True)
-    legal_entity_congressional = models.TextField(blank=True, null=True)
     legal_entity_country_code = models.TextField(blank=True, null=True)
-    legal_entity_county_code = models.TextField(blank=True, null=True)
-    legal_entity_county_name = models.TextField(blank=True, null=True)
     legal_entity_foreign_city = models.TextField(blank=True, null=True)
     legal_entity_foreign_posta = models.TextField(blank=True, null=True)
     legal_entity_foreign_provi = models.TextField(blank=True, null=True)
-    legal_entity_state_code = models.TextField(blank=True, null=True)
-    legal_entity_state_name = models.TextField(blank=True, null=True)
     legal_entity_zip5 = models.TextField(blank=True, null=True)
     legal_entity_zip_last4 = models.TextField(blank=True, null=True)
-    modified_at = models.DateTimeField(blank=True, null=True)
     non_federal_funding_amount = models.DecimalField(max_digits=23, decimal_places=2, blank=True, null=True)
     original_loan_subsidy_cost = models.DecimalField(max_digits=23, decimal_places=2, blank=True, null=True)
     period_of_performance_curr = models.TextField(blank=True, null=True)
     period_of_performance_star = models.TextField(blank=True, null=True)
-    place_of_performance_city = models.TextField(blank=True, null=True)
     place_of_performance_code = models.TextField(blank=True, null=True)
     place_of_performance_congr = models.TextField(blank=True, null=True)
     place_of_perform_country_c = models.TextField(blank=True, null=True)
-    place_of_perform_county_na = models.TextField(blank=True, null=True)
     place_of_performance_forei = models.TextField(blank=True, null=True)
-    place_of_perform_state_nam = models.TextField(blank=True, null=True)
     place_of_performance_zip4a = models.TextField(blank=True, null=True)
     record_type = models.IntegerField(blank=True, null=True)
     sai_number = models.TextField(blank=True, null=True)
-    total_funding_amount = models.TextField(blank=True, null=True)
     uri = models.TextField(blank=True, null=True)
-
-    # Timestamp field auto generated by broker
-    created_at = models.DateTimeField(blank=True, null=True)
-    updated_at = models.DateTimeField(blank=True, null=True)
+    legal_entity_congressional = models.TextField(blank=True, null=True)
+    total_funding_amount = models.TextField(blank=True, null=True)
+    cfda_title = models.TextField(blank=True, null=True)
+    awarding_agency_name = models.TextField(blank=True, null=True)
+    awarding_sub_tier_agency_n = models.TextField(blank=True, null=True)
+    funding_agency_name = models.TextField(blank=True, null=True)
+    funding_sub_tier_agency_na = models.TextField(blank=True, null=True)
+    is_historical = models.NullBooleanField()
+    place_of_perform_county_na = models.TextField(blank=True, null=True)
+    place_of_perform_state_nam = models.TextField(blank=True, null=True)
+    place_of_performance_city = models.TextField(blank=True, null=True)
 
     class Meta:
         managed = False
         db_table = 'published_award_financial_assistance'
         unique_together = (('awarding_sub_tier_agency_c', 'award_modification_amendme', 'fain', 'uri'),)
-
-
-class TransactionMap(models.Model):
-    transaction = models.ForeignKey(TransactionNew, on_delete=models.CASCADE)
-    transaction_assistance_id = models.IntegerField(blank=True, null=True)
-    transaction_contract_id = models.IntegerField(blank=True, null=True)
