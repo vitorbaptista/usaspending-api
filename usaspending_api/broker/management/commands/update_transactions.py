@@ -6,11 +6,12 @@ from django.core.management.base import BaseCommand
 from django.db import connections, transaction as db_transaction, IntegrityError
 
 from usaspending_api.etl.broker_etl_helpers import dictfetchall
-from usaspending_api.broker.models import TransactionNormalized, TransactionFABS, TransactionFPDS
+from usaspending_api.awards.models import TransactionNormalized, TransactionFABS, TransactionFPDS
 from usaspending_api.awards.models import Award
 from usaspending_api.references.models import Agency, LegalEntity
 from usaspending_api.etl.management.load_base import copy, get_or_create_location, format_date, load_data_into_model
 from usaspending_api.etl.award_helpers import update_awards, update_contract_awards, update_award_categories
+import sys
 
 # start = timeit.default_timer()
 # function_call
@@ -43,17 +44,22 @@ class Command(BaseCommand):
         query = "SELECT * FROM published_award_financial_assistance"
         arguments = []
 
+        fy_begin = '10/01/' + str(fiscal_year - 1)
+        fy_end = '09/30/' + str(fiscal_year)
+
         if fiscal_year:
             if arguments:
                 query += " AND"
             else:
                 query += " WHERE"
-            query += ' FY(action_date) = %s'
-            arguments += [fiscal_year]
+            query += ' action_date::Date BETWEEN %s AND %s'
+            arguments += [fy_begin]
+            arguments += [fy_end]
         query += ' ORDER BY published_award_financial_assistance_id LIMIT %s OFFSET %s'
-        arguments += [limit, (page-1)*limit]
+        arguments += [limit, (page - 1) * limit]
 
-        logger.info("Executing query on Broker DB => " + query)
+        logger.info("Executing query on Broker DB => " + query % (arguments[0], arguments[1],
+                                                                  arguments[2], arguments[3]))
 
         db_cursor.execute(query, arguments)
 
@@ -139,7 +145,7 @@ class Command(BaseCommand):
                 # Create the legal entity if it doesn't exist
                 created = False
                 legal_entity = LegalEntity.objects.filter(recipient_unique_id=row['awardee_or_recipient_uniqu'],
-                                                recipient_name=recipient_name).first()
+                                                          recipient_name=recipient_name).first()
 
                 if legal_entity is None:
                     created = True
@@ -187,7 +193,7 @@ class Command(BaseCommand):
                     # piid=transaction_assistance.get('piid'), # not found
                     fain=row.get('fain'),
                     uri=row.get('uri'))
-                    # parent_award_id=transaction_assistance.get('parent_award_id')) # not found
+                # parent_award_id=transaction_assistance.get('parent_award_id')) # not found
                 award.save()
 
                 # AWARD_UPDATE_ID_LIST.append(award.id)
@@ -241,17 +247,22 @@ class Command(BaseCommand):
         query = "SELECT * FROM detached_award_procurement"
         arguments = []
 
+        fy_begin = '10/01/' + str(fiscal_year - 1)
+        fy_end = '09/30/' + str(fiscal_year)
+
         if fiscal_year:
             if arguments:
                 query += " AND"
             else:
                 query += " WHERE"
-            query += ' FY(action_date) = %s'
-            arguments += [fiscal_year]
+            query += ' action_date::Date BETWEEN %s AND %s'
+            arguments += [fy_begin]
+            arguments += [fy_end]
         query += ' ORDER BY detached_award_procurement_id LIMIT %s OFFSET %s'
-        arguments += [limit, (page-1)*limit]
+        arguments += [limit, (page - 1) * limit]
 
-        logger.info("Executing query on Broker DB => " + query)
+        logger.info("Executing query on Broker DB => " + query % (arguments[0], arguments[1],
+                                                                  arguments[2], arguments[3]))
 
         db_cursor.execute(query, arguments)
 
@@ -405,7 +416,7 @@ class Command(BaseCommand):
                     pass
 
     def add_arguments(self, parser):
-        
+
         parser.add_argument(
             '--fiscal_year',
             dest="fiscal_year",
@@ -413,7 +424,7 @@ class Command(BaseCommand):
             type=int,
             help="Year for which to run the historical load"
         )
-        
+
         parser.add_argument(
             '--assistance',
             action='store_true',
@@ -421,7 +432,7 @@ class Command(BaseCommand):
             default=False,
             help='Runs the historical loader only for Award Financial Assistance (Assistance) data'
         )
-        
+
         parser.add_argument(
             '--contracts',
             action='store_true',
@@ -463,18 +474,18 @@ class Command(BaseCommand):
 
         page = page[0] if page else 1
         limit = limit[0] if limit else 500000
-        
+
         if not options['assistance']:
             logger.info('Starting D1 historical data load...')
             start = timeit.default_timer()
-            self.update_transaction_contract(db_cursor = db_cursor, fiscal_year=fiscal_year, page=page, limit=limit)
+            self.update_transaction_contract(db_cursor=db_cursor, fiscal_year=fiscal_year, page=page, limit=limit)
             end = timeit.default_timer()
             logger.info('Finished D1 historical data load in ' + str(end - start) + ' seconds')
 
         if not options['contracts']:
             logger.info('Starting D2 historical data load...')
             start = timeit.default_timer()
-            self.update_transaction_assistance(db_cursor = db_cursor, fiscal_year=fiscal_year, page=page, limit=limit)
+            self.update_transaction_assistance(db_cursor=db_cursor, fiscal_year=fiscal_year, page=page, limit=limit)
             end = timeit.default_timer()
             logger.info('Finished D2 historical data load in ' + str(end - start) + ' seconds')
 
