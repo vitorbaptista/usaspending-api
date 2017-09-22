@@ -29,9 +29,11 @@ from usaspending_api.etl.award_helpers import (
 from usaspending_api.etl.helpers import get_fiscal_quarter, get_previous_submission
 from usaspending_api.etl.broker_etl_helpers import dictfetchall, PhonyCursor
 from usaspending_api.etl.subaward_etl import load_subawards
+from usaspending_api.references.helpers import canonicalize_location_dict
+from usaspending_api.references.models import Location, RefCountryCode
+from django.core.exceptions import MultipleObjectsReturned
 
-from usaspending_api.etl.management import load_base
-from usaspending_api.etl.management.load_base import format_date, load_data_into_model
+from usaspending_api.etl.management.load_base import Command, load_data_into_model
 
 # This dictionary will hold a map of tas_id -> treasury_account to ensure we don't
 # keep hitting the databroker DB for account data
@@ -44,7 +46,7 @@ awards_cache = caches['awards']
 logger = logging.getLogger('console')
 
 
-class Command(load_base.Command):
+class Command(Command):
     """
     This command will load a single submission from the DATA Act broker. If
     we've already loaded the specified broker submisison, this command
@@ -122,19 +124,25 @@ def load_file_d1(submission_attributes, procurement_data, db_cursor, quick=False
         "address_line2": "legal_entity_address_line2",
         "address_line3": "legal_entity_address_line3",
         "location_country_code": "legal_entity_country_code",
+        "country_name": "legal_entity_country_name",
         "city_name": "legal_entity_city_name",
         "congressional_code": "legal_entity_congressional",
         "state_code": "legal_entity_state_code",
+        "state_name": "legal_entity_state_descrip",
         "zip4": "legal_entity_zip4"
     }
 
     place_of_performance_field_map = {
         # not sure place_of_performance_locat maps exactly to city name
+        # TODO: place_of_performance_locat vs place_of_perform_city_name
+        "location_country_code": "place_of_perform_country_c",
+        "country_name": "place_of_perf_country_desc",
         "city_name": "place_of_performance_locat",
         "congressional_code": "place_of_performance_congr",
         "state_code": "place_of_performance_state",
+        "state_name": "place_of_perfor_state_desc",
         "zip4": "place_of_performance_zip4a",
-        "location_country_code": "place_of_perform_country_c"
+        "county_name": "place_of_perform_county_na"
     }
 
     place_of_performance_value_map = {
@@ -158,12 +166,12 @@ def load_file_d1(submission_attributes, procurement_data, db_cursor, quick=False
                                                                          str(total_rows),
                                                                          datetime.now() - start_time))
 
-        legal_entity_location, rec_created = load_base.get_or_create_location(
+        legal_entity_location, rec_created = get_or_create_location(
             legal_entity_location_field_map, row, copy(legal_entity_location_value_map)
         )
 
         # Create the place of performance location
-        pop_location, pop_created = load_base.get_or_create_location(
+        pop_location, pop_created = get_or_create_location(
             place_of_performance_field_map, row, place_of_performance_value_map
         )
 
@@ -202,10 +210,13 @@ def load_file_d1(submission_attributes, procurement_data, db_cursor, quick=False
         if ((award_ppop is None or award.latest_transaction == transaction) and
                     award_ppop != transaction.place_of_performance):
             award.place_of_performance = pop_location
+            pop_location.save()
 
         if ((award_recipient_location is None or award.latest_transaction == transaction) and
                     award_recipient_location != transaction.recipient.location):
             award.recipient.location = legal_entity_location
+            legal_entity_location.save()
+
 
         if old_pop:
             old_pop.delete()
@@ -231,7 +242,6 @@ def load_file_d2(
         "address_line1": "legal_entity_address_line1",
         "address_line2": "legal_entity_address_line2",
         "address_line3": "legal_entity_address_line3",
-        "city_code": "legal_entity_city_code",
         "city_name": "legal_entity_city_name",
         "congressional_code": "legal_entity_congressional",
         "county_code": "legal_entity_county_code",
@@ -248,14 +258,12 @@ def load_file_d2(
 
     place_of_performance_field_map = {
         "city_name": "place_of_performance_city",
-        "performance_code": "place_of_performance_code",
         "congressional_code": "place_of_performance_congr",
         "county_name": "place_of_perform_county_na",
         "foreign_location_description": "place_of_performance_forei",
         "state_name": "place_of_perform_state_nam",
         "zip4": "place_of_performance_zip4a",
         "location_country_code": "place_of_perform_country_c"
-
     }
 
     legal_entity_location_value_map = {
@@ -280,12 +288,12 @@ def load_file_d2(
                                                                          str(total_rows),
                                                                          datetime.now() - start_time))
 
-        legal_entity_location, rec_created = load_base.get_or_create_location(
+        legal_entity_location, rec_created = get_or_create_location(
             legal_entity_location_field_map, row, copy(legal_entity_location_value_map)
         )
 
         # Create the place of performance location
-        pop_location, pop_created = load_base.get_or_create_location(
+        pop_location, pop_created = get_or_create_location(
             place_of_performance_field_map, row, place_of_performance_value_map
         )
 
@@ -319,10 +327,12 @@ def load_file_d2(
         if ((award_ppop is None or award.latest_transaction == transaction) and
                     award_ppop != transaction.place_of_performance):
             award.place_of_performance = pop_location
+            pop_location.save()
 
         if ((award_recipient_location is None or award.latest_transaction == transaction) and
                     award_recipient_location != transaction.recipient.location):
             award.recipient.location = legal_entity_location
+            legal_entity_location.save()
 
         if old_pop:
             Location.objects.filter(location_id=old_pop.location_id).delete()
@@ -374,3 +384,62 @@ def get_submission_attributes(broker_submission_id, submission_data):
     return load_data_into_model(
         submission_attributes, submission_data,
         field_map=field_map, value_map=value_map, save=True)
+
+def get_or_create_location(location_map, row, location_value_map=None, empty_location=None, d_file=False):
+    """
+    Retrieve or create a location object
+
+    Input parameters:
+        - location_map: a dictionary with key = field name on the location model
+            and value = corresponding field name on the current row of data
+        - row: the row of data currently being loaded
+    """
+    if location_value_map is None:
+        location_value_map = {}
+
+    row = canonicalize_location_dict(row)
+
+    location_country = RefCountryCode.objects.filter(
+        country_code=row[location_map.get('location_country_code')]).first()
+
+    state_code = row.get(location_map.get('state_code'))
+    if state_code is not None:
+        # Remove . in state names (i.e. D.C.)
+        location_value_map.update({'state_code': state_code.replace('.', '')})
+
+    if location_country:
+        location_value_map.update({
+            'location_country_code': location_country,
+            'country_name': location_country.country_name,
+            'state_code': None,  # expired
+            'state_name': None,
+        })
+    else:
+        # no country found for this code
+        location_value_map.update({
+            'location_country_code': None,
+            'country_name': None
+        })
+
+    location_data = load_data_into_model(
+        Location(), row, value_map=location_value_map, field_map=location_map, as_dict=True)
+
+    del location_data['data_source']  # hacky way to ensure we don't create a series of empty location records
+    if len(location_data):
+        try:
+            if len(location_data) == 1 and "place_of_performance_flag" in location_data and location_data["place_of_performance_flag"]:
+                location_object = None
+                created = False
+            else:
+                location_object, created = Location.objects.get_or_create(**location_data, defaults={'data_source': 'DBR'})
+        except MultipleObjectsReturned:
+            # incoming location data is so sparse that comparing it to existing locations
+            # yielded multiple records. create a new location with this limited info.
+            # note: this will need fixed up to prevent duplicate location records with the
+            # same sparse data
+            location_object = Location.objects.create(**location_data)
+            created = True
+        return location_object, created
+    else:
+        # record had no location information at all
+        return None, None
