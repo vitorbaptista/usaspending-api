@@ -144,7 +144,7 @@ class Command(BaseCommand):
                 if pop:
                     bulk_array.append(pop)
                 Location.objects.bulk_create(bulk_array)
-                if fiscal_year:
+                if save:
                     for l in bulk_array:
                         l.save()
 
