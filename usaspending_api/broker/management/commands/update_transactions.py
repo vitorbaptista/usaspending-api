@@ -35,7 +35,7 @@ class Command(BaseCommand):
 
     def update_transaction_assistance(self, db_cursor, fiscal_year=None, start_page=1, limit=500000):
         if fiscal_year:
-            assistance_data = self.get_assistance_data(db_cursor, fiscal_year, start_page, limit)
+            assistance_data = self.get_assistance_data(db_cursor, fiscal_year=fiscal_year, page=start_page, limit=limit)
 
             logger.info("Getting total rows")
             total_rows = len(assistance_data)
@@ -46,7 +46,7 @@ class Command(BaseCommand):
             update_finished = False
             rows_loaded = 0
             while not update_finished:
-                assistance_data = self.get_assistance_data(db_cursor, start_page, limit)
+                assistance_data = self.get_assistance_data(db_cursor, page=start_page, limit=limit)
 
                 logger.info("Getting count for next batch of rows")
                 current_rows = len(assistance_data)
@@ -55,11 +55,13 @@ class Command(BaseCommand):
                 if current_rows > 0:
                     logger.info("Processing " + str(current_rows) + " rows of assistance data")
                     self.process_assistance_data(assistance_data, current_rows)
+                    logger.info("Total rows loaded: " + str(current_rows + rows_loaded))
 
                 if current_rows < limit:
                     update_finished = True
                 else:
                     start_page += 1
+                    rows_loaded += current_rows
 
     @staticmethod
     def get_assistance_data(db_cursor, fiscal_year=None, page=1, limit=500000):
@@ -87,7 +89,7 @@ class Command(BaseCommand):
             arguments += [fy_end]
         else:
             query += " WHERE updated_at > %s"
-            arguments += ["25/09/2017"]  # TODO make this pull from a table with "last updated" listed
+            arguments += ["09/25/2017"]  # TODO make this pull from a table with "last updated" listed
         query += ' ORDER BY published_award_financial_assistance_id LIMIT %s OFFSET %s'
         arguments += [limit, (page - 1) * limit]
 
@@ -103,10 +105,8 @@ class Command(BaseCommand):
         award_financial_assistance_data = dictfetchall(db_cursor)
         return award_financial_assistance_data
 
-
     @staticmethod
     def process_assistance_data(award_financial_assistance_data, total_rows):
-
         legal_entity_location_field_map = {
             "address_line1": "legal_entity_address_line1",
             "address_line2": "legal_entity_address_line2",
@@ -274,9 +274,38 @@ class Command(BaseCommand):
                 except IntegrityError:
                     pass
 
-    @staticmethod
-    def update_transaction_contract(db_cursor, fiscal_year=None, page=1, limit=500000):
+    def update_transaction_contract(self, db_cursor, fiscal_year=None, start_page=1, limit=500000):
+        if fiscal_year:
+            contract_data = self.get_contract_data(db_cursor, fiscal_year=fiscal_year, page=start_page, limit=limit)
 
+            logger.info("Getting total rows")
+            total_rows = len(contract_data)
+
+            logger.info("Processing " + str(total_rows) + " rows of procurement data")
+            self.process_contract_data(contract_data, total_rows)
+        else:
+            update_finished = False
+            rows_loaded = 0
+            while not update_finished:
+                contract_data = self.get_contract_data(db_cursor, page=start_page, limit=limit)
+
+                logger.info("Getting count for next batch of rows")
+                current_rows = len(contract_data)
+
+                # there's an off-chance we'd pull 0 rows if the limit exactly coincided with the number of updated rows
+                if current_rows > 0:
+                    logger.info("Processing " + str(current_rows) + " rows of procurement data")
+                    self.process_contract_data(contract_data, current_rows)
+                    logger.info("Total rows loaded: " + str(current_rows + rows_loaded))
+
+                if current_rows < limit:
+                    update_finished = True
+                else:
+                    start_page += 1
+                    rows_loaded += current_rows
+
+    @staticmethod
+    def get_contract_data(db_cursor, fiscal_year=None, page=1, limit=500000):
         # logger.info("Getting IDs for what's currently in the DB...")
         # current_ids = TransactionFPDS.objects
         #
@@ -301,9 +330,9 @@ class Command(BaseCommand):
             arguments += [fy_end]
         else:
             query += " WHERE last_modified > %s"
-            arguments += ["25/09/2017"]  # TODO make this pull from a table with "last updated" listed
+            arguments += ["09/25/2017"]  # TODO make this pull from a table with "last updated" listed
         query += ' ORDER BY detached_award_procurement_id LIMIT %s OFFSET %s'
-        arguments += [limit, (page-1)*limit]
+        arguments += [limit, (page - 1) * limit]
 
         if fiscal_year:
             logger.info("Executing query on Broker DB => " + query % (arguments[0], arguments[1],
@@ -315,7 +344,10 @@ class Command(BaseCommand):
 
         logger.info("Running dictfetchall on db_cursor")
         procurement_data = dictfetchall(db_cursor)
+        return procurement_data
 
+    @staticmethod
+    def process_contract_data(procurement_data, total_rows):
         legal_entity_location_field_map = {
             "address_line1": "legal_entity_address_line1",
             "address_line2": "legal_entity_address_line2",
@@ -348,12 +380,6 @@ class Command(BaseCommand):
             "type": "contract_award_type",
             "description": "award_description"
         }
-
-        logger.info("Getting total rows")
-        # rows_loaded = len(current_ids)
-        total_rows = len(procurement_data)  # - rows_loaded
-
-        logger.info("Processing " + str(total_rows) + " rows of procurement data")
 
         # skip_count = 0
 
@@ -541,7 +567,7 @@ class Command(BaseCommand):
             if not options['assistance']:
                 logger.info('Starting D1 historical data load...')
                 start = timeit.default_timer()
-                self.update_transaction_contract(db_cursor = db_cursor, fiscal_year=fiscal_year, page=page, limit=limit)
+                self.update_transaction_contract(db_cursor = db_cursor, fiscal_year=fiscal_year, start_page=page, limit=limit)
                 end = timeit.default_timer()
                 logger.info('Finished D1 historical data load in ' + str(end - start) + ' seconds')
 
@@ -557,7 +583,7 @@ class Command(BaseCommand):
 
             logger.info('Starting D1 update data load...')
             start = timeit.default_timer()
-            self.update_transaction_contract(db_cursor=db_cursor, page=page, limit=limit)
+            self.update_transaction_contract(db_cursor=db_cursor, start_page=page, limit=limit)
             end = timeit.default_timer()
             logger.info('Finished D1 update data load in ' + str(end - start) + ' seconds')
 
