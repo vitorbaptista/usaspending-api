@@ -1,10 +1,10 @@
 import logging
 import timeit
 from datetime import datetime
-
+import sys
 from django.core.management.base import BaseCommand
 from django.db import connections, transaction as db_transaction
-
+from django.db.utils import IntegrityError
 from usaspending_api.etl.broker_etl_helpers import dictfetchall
 from usaspending_api.references.models import Agency, SubtierAgency, ToptierAgency, Location, RefCountryCode
 from usaspending_api.etl.management.load_base import copy, load_data_into_model
@@ -31,40 +31,7 @@ class Command(BaseCommand):
     help = "Create Locations from Location data in the Broker."
 
     @staticmethod
-    def update_transaction_assistance(db_cursor, fiscal_year=None, page=1, limit=500000, save=True):
-
-        # logger.info("Getting IDs for what's currently in the DB...")
-        # current_ids = TransactionFABS.objects
-        #
-        # if fiscal_year:
-        #     current_ids = current_ids.filter(action_date__fy=fiscal_year)
-        #
-        # current_ids = current_ids.values_list('published_award_financial_assistance_id', flat=True)
-
-        query = "SELECT * FROM published_award_financial_assistance"
-        arguments = []
-
-        fy_begin = '10/01/' + str(fiscal_year - 1)
-        fy_end = '09/30/' + str(fiscal_year)
-
-        if fiscal_year:
-            if arguments:
-                query += " AND"
-            else:
-                query += " WHERE"
-            query += ' action_date::Date BETWEEN %s AND %s'
-            arguments += [fy_begin]
-            arguments += [fy_end]
-        query += ' ORDER BY published_award_financial_assistance_id LIMIT %s OFFSET %s'
-        arguments += [limit, (page - 1) * limit]
-
-        logger.info("Executing query on Broker DB => " + query % (arguments[0], arguments[1],
-                                                                  arguments[2], arguments[3]))
-
-        db_cursor.execute(query, arguments)
-
-        logger.info("Running dictfetchall on db_cursor")
-        award_financial_assistance_data = dictfetchall(db_cursor)
+    def update_transaction_assistance(db_cursor, fiscal_year=2017, page=1, limit=500000, save=True):
 
         legal_entity_location_field_map = {
             "address_line1": "legal_entity_address_line1",
@@ -105,62 +72,10 @@ class Command(BaseCommand):
             "place_of_performance_flag": True
         }
 
-        logger.info("Getting total rows")
-        # rows_loaded = len(current_ids)
-        total_rows = len(award_financial_assistance_data)  # - rows_loaded
+        list_of_columns = (', '.join(legal_entity_location_field_map.values())) + ', ' + \
+                          (', '.join(place_of_performance_field_map.values()))
 
-        logger.info("Processing " + str(total_rows) + " rows of assistance data")
-
-        # skip_count = 0
-        bulk_array = []
-
-        start_time = datetime.now()
-        for index, row in enumerate(award_financial_assistance_data, 1):
-            with db_transaction.atomic():
-                # if TransactionFABS.objects.values('published_award_financial_assistance_id').\
-                #         filter(published_award_financial_assistance_id=str(row['published_award_financial_assistance_id'])).first():
-                #     skip_count += 1
-                #
-                #     if not (skip_count % 100):
-                #         logger.info('Skipped {} records so far'.format(str(skip_count)))
-                #     continue
-
-                if not (index % 100):
-                    logger.info('D2 File Load: Loading row {} of {} ({})'.format(str(index),
-                                                                                 str(total_rows),
-                                                                                 datetime.now() - start_time))
-
-                lel= get_or_create_location_pre_bulk(
-                    legal_entity_location_field_map, row, legal_entity_location_value_map
-                )
-
-                # Create the place of performance location
-                pop = get_or_create_location_pre_bulk(
-                    place_of_performance_field_map, row, place_of_performance_value_map
-                )
-
-                if lel:
-                    bulk_array.append(lel)
-                if pop:
-                    bulk_array.append(pop)
-                Location.objects.bulk_create(bulk_array)
-                if save:
-                    for l in bulk_array:
-                        l.save()
-
-
-    @staticmethod
-    def update_transaction_contract(db_cursor, fiscal_year=None, page=1, limit=500000, save=True):
-
-        # logger.info("Getting IDs for what's currently in the DB...")
-        # current_ids = TransactionFPDS.objects
-        #
-        # if fiscal_year:
-        #     current_ids = current_ids.filter(action_date__fy=fiscal_year)
-        #
-        # current_ids = current_ids.values_list('detached_award_procurement_id', flat=True)
-
-        query = "SELECT * FROM detached_award_procurement"
+        query = "SELECT {} FROM published_award_financial_assistance".format(list_of_columns)
         arguments = []
 
         fy_begin = '10/01/' + str(fiscal_year - 1)
@@ -174,7 +89,7 @@ class Command(BaseCommand):
             query += ' action_date::Date BETWEEN %s AND %s'
             arguments += [fy_begin]
             arguments += [fy_end]
-        query += ' ORDER BY detached_award_procurement_id LIMIT %s OFFSET %s'
+        query += ' ORDER BY published_award_financial_assistance_id LIMIT %s OFFSET %s'
         arguments += [limit, (page - 1) * limit]
 
         logger.info("Executing query on Broker DB => " + query % (arguments[0], arguments[1],
@@ -183,7 +98,52 @@ class Command(BaseCommand):
         db_cursor.execute(query, arguments)
 
         logger.info("Running dictfetchall on db_cursor")
-        procurement_data = dictfetchall(db_cursor)
+        award_financial_assistance_data = dictfetchall(db_cursor)
+
+        logger.info("Getting total rows")
+        total_rows = len(award_financial_assistance_data)  # - rows_loaded
+
+        logger.info("Processing " + str(total_rows) + " rows of location data")
+
+        bulk_array = []
+
+        start_time = datetime.now()
+        for index, row in enumerate(award_financial_assistance_data, 1):
+            with db_transaction.atomic():
+
+                if not (index % 100):
+                    logger.info('Location Load: Loading row {} of {} ({})'.format(str(index),
+                                                                                 str(total_rows),
+                                                                                 datetime.now() - start_time))
+
+                lel = get_or_create_location_pre_bulk(
+                    legal_entity_location_field_map, row, legal_entity_location_value_map
+                )
+
+                # Create the place of performance location
+                pop = get_or_create_location_pre_bulk(
+                    place_of_performance_field_map, row, place_of_performance_value_map
+                )
+
+                if lel:
+                    bulk_array.append(lel)
+                if pop:
+                    bulk_array.append(pop)
+
+        logger.info('Bulk creating...')
+        logger.info('BULK ARRAY: {}'.format(bulk_array))
+        try:
+            Location.objects.bulk_create(bulk_array)
+        except IntegrityError:
+            logger.info('Some dupes skipped...')
+
+        if save:
+            for l in bulk_array:
+                l.save()
+
+
+    @staticmethod
+    def update_transaction_contract(db_cursor, fiscal_year=None, page=1, limit=500000, save=True):
 
         legal_entity_location_field_map = {
             "address_line1": "legal_entity_address_line1",
@@ -213,6 +173,34 @@ class Command(BaseCommand):
             "place_of_performance_flag": True
         }
 
+        list_of_columns = (', '.join(legal_entity_location_field_map.values())) + ', ' +  \
+                          (', '.join(place_of_performance_field_map.values()))
+
+        query = "SELECT {} FROM detached_award_procurement".format(list_of_columns)
+        arguments = []
+
+        fy_begin = '10/01/' + str(fiscal_year - 1)
+        fy_end = '09/30/' + str(fiscal_year)
+
+        if fiscal_year:
+            if arguments:
+                query += " AND"
+            else:
+                query += " WHERE"
+            query += ' action_date::Date BETWEEN %s AND %s'
+            arguments += [fy_begin]
+            arguments += [fy_end]
+        query += ' ORDER BY detached_award_procurement_id LIMIT %s OFFSET %s'
+        arguments += [limit, (page - 1) * limit]
+
+        logger.info("Executing query on Broker DB => " + query % (arguments[0], arguments[1],
+                                                                  arguments[2], arguments[3]))
+
+        db_cursor.execute(query, arguments)
+
+        logger.info("Running dictfetchall on db_cursor")
+        procurement_data = dictfetchall(db_cursor)
+
         logger.info("Getting total rows")
         # rows_loaded = len(current_ids)
         total_rows = len(procurement_data)  # - rows_loaded
@@ -224,15 +212,9 @@ class Command(BaseCommand):
         start_time = datetime.now()
         for index, row in enumerate(procurement_data, 1):
             with db_transaction.atomic():
-                # if TransactionFPDS.objects.values('detached_award_procurement_id').\
-                #         filter(detached_award_procurement_id=str(row['detached_award_procurement_id'])).first():
-                #     skip_count += 1
-                #
-                #     if not (skip_count % 100):
-                #         logger.info('Skipped {} records so far'.format(str(skip_count)))
 
                 if not (index % 100):
-                    logger.info('D1 File Load: Loading row {} of {} ({})'.format(str(index),
+                    logger.info('D1 File Load: Added row {} of {} ({})'.format(str(index),
                                                                                  str(total_rows),
                                                                                  datetime.now() - start_time))
 
@@ -242,16 +224,21 @@ class Command(BaseCommand):
                 if lel:
                     bulk_array.append(lel)
 
-                # Create the place of performance location
                 pop = get_or_create_location_pre_bulk(
                     place_of_performance_field_map, row, copy(place_of_performance_value_map))
                 if pop:
                     bulk_array.append(pop)
 
-                Location.objects.bulk_create(bulk_array)
-                if save:
-                    for l in bulk_array:
-                        l.save()
+        logger.info('Bulk creating...')
+        logger.info('BULK ARRAY: '.format(bulk_array))
+        try:
+            Location.objects.bulk_create(bulk_array)
+        except IntegrityError:
+            logger.info('Some dupes skipped...')
+
+        if save:
+            for l in bulk_array:
+                l.save()
 
     def add_arguments(self, parser):
 
@@ -268,7 +255,7 @@ class Command(BaseCommand):
             action='store_true',
             dest='assistance',
             default=False,
-            help='Runs the historical loader only for Award Financial Assistance (Assistance) data'
+            help='Runs the historical loader only for Award Financial Assistance (Assistance/FABS) data'
         )
 
         parser.add_argument(
@@ -276,7 +263,7 @@ class Command(BaseCommand):
             action='store_true',
             dest='contracts',
             default=False,
-            help='Runs the historical loader only for Award Procurement (Contract) data'
+            help='Runs the historical loader only for Award Procurement (Contract/FPDS) data'
         )
 
         parser.add_argument(
@@ -334,25 +321,6 @@ class Command(BaseCommand):
             end = timeit.default_timer()
             logger.info('Finished D2 historical data location insert in ' + str(end - start) + ' seconds')
 
-        # logger.info('Updating awards to reflect their latest associated transaction info...')
-        # start = timeit.default_timer()
-        # update_awards(tuple(award_update_id_list))
-        # end = timeit.default_timer()
-        # logger.info('Finished updating awards in ' + str(end - start) + ' seconds')
-        #
-        # logger.info('Updating contract-specific awards to reflect their latest transaction info...')
-        # start = timeit.default_timer()
-        # update_contract_awards(tuple(award_contract_update_id_list))
-        # end = timeit.default_timer()
-        # logger.info('Finished updating contract specific awards in ' + str(end - start) + ' seconds')
-        #
-        # logger.info('Updating award category variables...')
-        # start = timeit.default_timer()
-        # update_award_categories(tuple(award_update_id_list))
-        # end = timeit.default_timer()
-        # logger.info('Finished updating award category variables in ' + str(end - start) + ' seconds')
-
-        # Done!
         logger.info('FINISHED')
 
 
@@ -394,19 +362,13 @@ def get_or_create_location_pre_bulk(location_map, row, location_value_map):
 
     location_data = load_data_into_model(
         Location(), row, value_map=location_value_map, field_map=location_map, as_dict=True)
+    print(location_data)
 
     del location_data['data_source']  # hacky way to ensure we don't create a series of empty location records
     if len(location_data):
-        if len(location_data) == 1 and "place_of_performance_flag" in location_data and \
-                location_data["place_of_performance_flag"]:
-            location_object = None
-            return location_object
-        try:
-            location_object = Location.objects.create(**location_data)
-            return location_object
-        except Exception:
-            logger.info('Exception in create location')
-            return None
+        if "place_of_performance_flag" in location_data.keys() or "recipient_flag" in location_data.keys():
+            print('+1')
+            return location_data
     else:
         # record had no location information at all
         return None
