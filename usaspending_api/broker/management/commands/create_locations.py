@@ -447,7 +447,7 @@ def get_or_create_location_pre_bulk(location_map, row, location_value_map):
                 address_line2 = location_data.get('address_line2'),
                 address_line3 = location_data.get('address_line3'),
                 foreign_location_description = location_data.get('foreign_location_description'),
-                zip4 = 'poop',
+                zip4 = '8675309',
                 zip_4a = location_data.get('zip_4a'),
                 congressional_code = location_data.get('congressional_code'),
                 performance_code = location_data.get('performance_code'),
