@@ -2,11 +2,14 @@ import logging
 import timeit
 from datetime import datetime
 import sys
+from django.db.models import F, Q
 from django.core.management.base import BaseCommand
 from django.db import connections, transaction as db_transaction
+from usaspending_api.references.abbreviations import state_to_code, code_to_state
 from django.db.utils import IntegrityError
 from usaspending_api.etl.broker_etl_helpers import dictfetchall
-from usaspending_api.references.models import Agency, SubtierAgency, ToptierAgency, Location, RefCountryCode
+from usaspending_api.references.models import Agency, SubtierAgency, ToptierAgency, Location, \
+    RefCountryCode, RefCityCountyCode
 from usaspending_api.etl.management.load_base import copy, load_data_into_model
 
 from usaspending_api.references.helpers import canonicalize_location_dict
@@ -137,10 +140,6 @@ class Command(BaseCommand):
         except IntegrityError:
             logger.info('Some dupes skipped...')
 
-        if save:
-            for l in bulk_array:
-                l.save()
-
 
     @staticmethod
     def update_transaction_contract(db_cursor, fiscal_year=None, page=1, limit=500000, save=True):
@@ -235,10 +234,6 @@ class Command(BaseCommand):
             Location.objects.bulk_create(bulk_array)
         except IntegrityError:
             logger.info('Some dupes skipped...')
-
-        if save:
-            for l in bulk_array:
-                l.save()
 
     def add_arguments(self, parser):
 
@@ -362,13 +357,93 @@ def get_or_create_location_pre_bulk(location_map, row, location_value_map):
 
     location_data = load_data_into_model(
         Location(), row, value_map=location_value_map, field_map=location_map, as_dict=True)
-    print(location_data)
 
     del location_data['data_source']  # hacky way to ensure we don't create a series of empty location records
     if len(location_data):
-        if "place_of_performance_flag" in location_data.keys() or "recipient_flag" in location_data.keys():
-            print('+1')
-            return location_data
+        if location_data.get('place_of_performance_flag') or location_data.get('recipient_flag'):
+
+            # Create a new location object, handling the things in Location.save:
+            '''self.load_country_data()
+                self.load_city_county_data()
+                 self.fill_missing_state_data()'''
+
+            # self.load_country_data()
+            if location_country is None:
+                # TODO: Is this USA by default?
+                if location_data.get('state_code'):
+                    location_data['country_code'] = 'USA'
+                else:
+                    location_data['country_code'] = None
+
+            if location_data.get('country_code'):
+                location_data['country_name'] = RefCountryCode.objects.get(country_code=location_data.get('country_code')).country_name
+
+            # self.load_city_county_data() ** For USA only
+            # Do a lookup, insert back into dict
+            if location_data.get('country_code') == 'USA':
+                q_kwargs = {
+                    "city_code": location_data.get('city_code'),
+                    "county_code": location_data.get('county_code'),
+                    "state_code__iexact": location_data.get('state_code'),
+                    "city_name__iexact": location_data.get('city_name'),
+                    "county_name__iexact": location_data.get('county_name')
+                }
+                q_kwargs = dict((k, v) for k, v in q_kwargs.items() if v)
+                matched_reference = RefCityCountyCode.objects.filter(Q(**q_kwargs))
+                if matched_reference.count() == 1:
+                    matched_reference = matched_reference.first()
+                    location_data['city_code'] = matched_reference.city_code
+                    location_data['county_code'] = matched_reference.county_code
+                    location_data['state_code'] = matched_reference.state_code
+                    location_data['city_name'] = matched_reference.city_name
+                    location_data['county_name'] = matched_reference.county_name
+
+            # self.fill_missing_state_data() ** For USA only
+            if location_data.get('country_code') == 'USA' and \
+                    (location_data.get('state_code') or location_data.get('state_name')):
+                if not location_data.get('state_code'):
+                    location_data['state_code'] = state_to_code.get(location_data['state_name'])
+                elif not location_data.get('state_name'):
+                    location_data['state_name'] = code_to_state.get(location_data['state_code'])
+
+            # Populate everything!
+            if location_data.get('country_code'):
+                country_code_object = RefCountryCode.objects.get(country_code=location_data['country_code'])
+            else:
+                country_code_object = None
+
+
+            new_loc = Location(
+                location_country_code = country_code_object,
+                country_name = location_data.get('country_name'),
+                state_code = location_data.get('state_code'),
+                state_name = location_data.get('state_name'),
+                state_description = location_data.get('state_description'),
+                city_name = location_data.get('city_name'),
+                city_code = location_data.get('city_code'),
+                county_name = location_data.get('county_name'),
+                county_code = location_data.get('county_code'),
+                address_line1 = location_data.get('address_line1'),
+                address_line2 = location_data.get('address_line2'),
+                address_line3 = location_data.get('address_line3'),
+                foreign_location_description = location_data.get('foreign_location_description'),
+                zip4 = '8675309',
+                zip_4a = location_data.get('zip_4a'),
+                congressional_code = location_data.get('congressional_code'),
+                performance_code = location_data.get('performance_code'),
+                zip_last4 = location_data.get('zip_last4'),
+                zip5 = location_data.get('zip5'),
+                foreign_postal_code = location_data.get('foreign_postal_code'),
+                foreign_province = location_data.get('foreign_province'),
+                foreign_city_name = location_data.get('foreign_city_name'),
+                reporting_period_start = location_data.get('reporting_period_start'),
+                reporting_period_end = location_data.get('reporting_period_end'),
+                last_modified_date = location_data.get('last_modified_date'),
+                certified_date = location_data.get('certified_date')
+            )
+
+            return new_loc
+
     else:
         # record had no location information at all
         return None
