@@ -47,10 +47,10 @@ class Command(BaseCommand):
         query = "SELECT * FROM published_award_financial_assistance"
         arguments = []
 
-        fy_begin = '10/01/' + str(fiscal_year - 1)
-        fy_end = '09/30/' + str(fiscal_year)
-
         if fiscal_year:
+            fy_begin = '10/01/' + str(fiscal_year - 1)
+            fy_end = '09/30/' + str(fiscal_year)
+
             if arguments:
                 query += " AND"
             else:
@@ -58,11 +58,17 @@ class Command(BaseCommand):
             query += ' action_date::Date BETWEEN %s AND %s'
             arguments += [fy_begin]
             arguments += [fy_end]
+        else:
+            query += " WHERE updated_at > %s"
+            arguments += ["25/09/2017"]  # TODO make this pull from a table with "last updated" listed
         query += ' ORDER BY published_award_financial_assistance_id LIMIT %s OFFSET %s'
         arguments += [limit, (page-1)*limit]
 
-        logger.info("Executing query on Broker DB => " + query % (arguments[0], arguments[1],
-                                                                  arguments[2], arguments[3]))
+        if fiscal_year:
+            logger.info("Executing query on Broker DB => " + query % (arguments[0], arguments[1],
+                                                                      arguments[2], arguments[3]))
+        else:
+            logger.info("Executing query on Broker DB => " + query % (arguments[0], arguments[1], arguments[2]))
 
         db_cursor.execute(query, arguments)
 
@@ -256,10 +262,10 @@ class Command(BaseCommand):
         query = "SELECT * FROM detached_award_procurement"
         arguments = []
 
-        fy_begin = '10/01/' + str(fiscal_year - 1)
-        fy_end = '09/30/' + str(fiscal_year)
-
         if fiscal_year:
+            fy_begin = '10/01/' + str(fiscal_year - 1)
+            fy_end = '09/30/' + str(fiscal_year)
+
             if arguments:
                 query += " AND"
             else:
@@ -267,11 +273,17 @@ class Command(BaseCommand):
             query += ' action_date::Date BETWEEN %s AND %s'
             arguments += [fy_begin]
             arguments += [fy_end]
+        else:
+            query += " WHERE last_modified > %s"
+            arguments += ["25/09/2017"]  # TODO make this pull from a table with "last updated" listed
         query += ' ORDER BY detached_award_procurement_id LIMIT %s OFFSET %s'
         arguments += [limit, (page-1)*limit]
 
-        logger.info("Executing query on Broker DB => " + query % (arguments[0], arguments[1],
-                                                                  arguments[2], arguments[3]))
+        if fiscal_year:
+            logger.info("Executing query on Broker DB => " + query % (arguments[0], arguments[1],
+                                                                      arguments[2], arguments[3]))
+        else:
+            logger.info("Executing query on Broker DB => " + query % (arguments[0], arguments[1], arguments[2]))
 
         db_cursor.execute(query, arguments)
 
@@ -472,37 +484,62 @@ class Command(BaseCommand):
             help="Limit for batching and parallelization"
         )
 
+        parser.add_argument(
+            '--update',
+            action='store_true',
+            dest='update',
+            default=False,
+            help='Runs the loader to update Award Financial Assistance and Award Procurement data since last update'
+        )
+
     # @transaction.atomic
     def handle(self, *args, **options):
         logger.info('Starting historical data load...')
 
         db_cursor = connections['data_broker'].cursor()
-        fiscal_year = options.get('fiscal_year')
-        page = options.get('page')
-        limit = options.get('limit')
 
-        if fiscal_year:
-            fiscal_year = fiscal_year[0]
-            logger.info('Processing data for Fiscal Year ' + str(fiscal_year))
+        if not options['update']:
+            fiscal_year = options.get('fiscal_year')
+            page = options.get('page')
+            limit = options.get('limit')
+
+            if fiscal_year:
+                fiscal_year = fiscal_year[0]
+                logger.info('Processing data for Fiscal Year ' + str(fiscal_year))
+            else:
+                fiscal_year = 2017
+
+            page = page[0] if page else 1
+            limit = limit[0] if limit else 500000
+
+            if not options['assistance']:
+                logger.info('Starting D1 historical data load...')
+                start = timeit.default_timer()
+                self.update_transaction_contract(db_cursor = db_cursor, fiscal_year=fiscal_year, page=page, limit=limit)
+                end = timeit.default_timer()
+                logger.info('Finished D1 historical data load in ' + str(end - start) + ' seconds')
+
+            if not options['contracts']:
+                logger.info('Starting D2 historical data load...')
+                start = timeit.default_timer()
+                self.update_transaction_assistance(db_cursor = db_cursor, fiscal_year=fiscal_year, page=page, limit=limit)
+                end = timeit.default_timer()
+                logger.info('Finished D2 historical data load in ' + str(end - start) + ' seconds')
         else:
-            fiscal_year = 2017
+            page = 1
+            limit = 500000
 
-        page = page[0] if page else 1
-        limit = limit[0] if limit else 500000
-        
-        if not options['assistance']:
-            logger.info('Starting D1 historical data load...')
+            logger.info('Starting D1 update data load...')
             start = timeit.default_timer()
-            self.update_transaction_contract(db_cursor = db_cursor, fiscal_year=fiscal_year, page=page, limit=limit)
+            self.update_transaction_contract(db_cursor=db_cursor, page=page, limit=limit)
             end = timeit.default_timer()
-            logger.info('Finished D1 historical data load in ' + str(end - start) + ' seconds')
+            logger.info('Finished D1 update data load in ' + str(end - start) + ' seconds')
 
-        if not options['contracts']:
-            logger.info('Starting D2 historical data load...')
+            logger.info('Starting D2 update data load...')
             start = timeit.default_timer()
-            self.update_transaction_assistance(db_cursor = db_cursor, fiscal_year=fiscal_year, page=page, limit=limit)
+            self.update_transaction_assistance(db_cursor=db_cursor, page=page, limit=limit)
             end = timeit.default_timer()
-            logger.info('Finished D2 historical data load in ' + str(end - start) + ' seconds')
+            logger.info('Finished D2 update data load in ' + str(end - start) + ' seconds')
 
         logger.info('Updating awards to reflect their latest associated transaction info...')
         start = timeit.default_timer()
