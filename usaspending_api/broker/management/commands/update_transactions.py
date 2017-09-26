@@ -33,9 +33,36 @@ toptier_agency_map = {toptier_agency['toptier_agency_id']: toptier_agency['cgac_
 class Command(BaseCommand):
     help = "Update historical transaction data for a fiscal year from the Broker."
 
-    @staticmethod
-    def update_transaction_assistance(db_cursor, fiscal_year=None, page=1, limit=500000):
+    def update_transaction_assistance(self, db_cursor, fiscal_year=None, start_page=1, limit=500000):
+        if fiscal_year:
+            assistance_data = self.get_assistance_data(db_cursor, fiscal_year, start_page, limit)
 
+            logger.info("Getting total rows")
+            total_rows = len(assistance_data)
+
+            logger.info("Processing " + str(total_rows) + " rows of assistance data")
+            self.process_assistance_data(assistance_data, total_rows)
+        else:
+            update_finished = False
+            rows_loaded = 0
+            while not update_finished:
+                assistance_data = self.get_assistance_data(db_cursor, start_page, limit)
+
+                logger.info("Getting count for next batch of rows")
+                current_rows = len(assistance_data)
+
+                # there's an off-chance we'd pull 0 rows if the limit exactly coincided with the number of updated rows
+                if current_rows > 0:
+                    logger.info("Processing " + str(current_rows) + " rows of assistance data")
+                    self.process_assistance_data(assistance_data, current_rows)
+
+                if current_rows < limit:
+                    update_finished = True
+                else:
+                    start_page += 1
+
+    @staticmethod
+    def get_assistance_data(db_cursor, fiscal_year=None, page=1, limit=500000):
         # logger.info("Getting IDs for what's currently in the DB...")
         # current_ids = TransactionFABS.objects
         #
@@ -62,7 +89,7 @@ class Command(BaseCommand):
             query += " WHERE updated_at > %s"
             arguments += ["25/09/2017"]  # TODO make this pull from a table with "last updated" listed
         query += ' ORDER BY published_award_financial_assistance_id LIMIT %s OFFSET %s'
-        arguments += [limit, (page-1)*limit]
+        arguments += [limit, (page - 1) * limit]
 
         if fiscal_year:
             logger.info("Executing query on Broker DB => " + query % (arguments[0], arguments[1],
@@ -74,6 +101,11 @@ class Command(BaseCommand):
 
         logger.info("Running dictfetchall on db_cursor")
         award_financial_assistance_data = dictfetchall(db_cursor)
+        return award_financial_assistance_data
+
+
+    @staticmethod
+    def process_assistance_data(award_financial_assistance_data, total_rows):
 
         legal_entity_location_field_map = {
             "address_line1": "legal_entity_address_line1",
@@ -118,12 +150,6 @@ class Command(BaseCommand):
             "type": "assistance_type",
             "description": "award_description",
         }
-
-        logger.info("Getting total rows")
-        # rows_loaded = len(current_ids)
-        total_rows = len(award_financial_assistance_data)  # - rows_loaded
-
-        logger.info("Processing " + str(total_rows) + " rows of assistance data")
 
         # skip_count = 0
 
@@ -497,11 +523,11 @@ class Command(BaseCommand):
         logger.info('Starting historical data load...')
 
         db_cursor = connections['data_broker'].cursor()
+        limit = options.get('limit')
 
         if not options['update']:
             fiscal_year = options.get('fiscal_year')
             page = options.get('page')
-            limit = options.get('limit')
 
             if fiscal_year:
                 fiscal_year = fiscal_year[0]
@@ -522,12 +548,12 @@ class Command(BaseCommand):
             if not options['contracts']:
                 logger.info('Starting D2 historical data load...')
                 start = timeit.default_timer()
-                self.update_transaction_assistance(db_cursor = db_cursor, fiscal_year=fiscal_year, page=page, limit=limit)
+                self.update_transaction_assistance(db_cursor = db_cursor, fiscal_year=fiscal_year, start_page=page, limit=limit)
                 end = timeit.default_timer()
                 logger.info('Finished D2 historical data load in ' + str(end - start) + ' seconds')
         else:
             page = 1
-            limit = 500000
+            limit = limit[0] if limit else 500000
 
             logger.info('Starting D1 update data load...')
             start = timeit.default_timer()
@@ -537,7 +563,7 @@ class Command(BaseCommand):
 
             logger.info('Starting D2 update data load...')
             start = timeit.default_timer()
-            self.update_transaction_assistance(db_cursor=db_cursor, page=page, limit=limit)
+            self.update_transaction_assistance(db_cursor=db_cursor, start_page=page, limit=limit)
             end = timeit.default_timer()
             logger.info('Finished D2 update data load in ' + str(end - start) + ' seconds')
 
