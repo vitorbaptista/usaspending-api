@@ -29,6 +29,23 @@ Agency.objects.values('id', 'toptier_agency_id', 'subtier_agency_id')}
 toptier_agency_map = {toptier_agency['toptier_agency_id']: toptier_agency['cgac_code'] for toptier_agency in
                       ToptierAgency.objects.values('toptier_agency_id', 'cgac_code')}
 
+"""
+This is a county code map that needs to be created anytime this file is loaded so that references can be pulled
+from memory.
+"""
+county_code_columns = ['city_code', 'county_code', 'state_code', 'city_name', 'county_name']
+county_code_map = {}
+
+for _city in RefCityCountyCode.objects.all():
+    _key = ''
+    _value = {}
+    for _column in county_code_columns:
+        _column_value = getattr(_city, _column, '')
+        _value[_column] = _column_value
+        if _column_value:
+            _key += _column_value.lower()
+    county_code_map[_key] = _value
+
 
 class Command(BaseCommand):
     help = "Create Locations from Location data in the Broker."
@@ -375,28 +392,31 @@ def get_or_create_location_pre_bulk(location_map, row, location_value_map):
                 else:
                     location_data['country_code'] = None
 
+            # print(location_data)
+
             if location_data.get('country_code'):
                 location_data['country_name'] = RefCountryCode.objects.get(country_code=location_data.get('country_code')).country_name
 
             # self.load_city_county_data() ** For USA only
             # Do a lookup, insert back into dict
             if location_data.get('country_code') == 'USA':
-                q_kwargs = {
-                    "city_code": location_data.get('city_code'),
-                    "county_code": location_data.get('county_code'),
-                    "state_code__iexact": location_data.get('state_code'),
-                    "city_name__iexact": location_data.get('city_name'),
-                    "county_name__iexact": location_data.get('county_name')
-                }
-                q_kwargs = dict((k, v) for k, v in q_kwargs.items() if v)
-                matched_reference = RefCityCountyCode.objects.filter(Q(**q_kwargs))
-                if matched_reference.count() == 1:
-                    matched_reference = matched_reference.first()
-                    location_data['city_code'] = matched_reference.city_code
-                    location_data['county_code'] = matched_reference.county_code
-                    location_data['state_code'] = matched_reference.state_code
-                    location_data['city_name'] = matched_reference.city_name
-                    location_data['county_name'] = matched_reference.county_name
+
+                ref_city_lkup_key = location_data.get('city_code', '') + location_data.get('county_code', '') + \
+                                    location_data.get('state_code', '') + location_data.get('city_name', '') + \
+                                    location_data.get('county_name', '')
+                print(ref_city_lkup_key)
+                print('KEY: {}'.format(ref_city_lkup_key))
+
+                if ref_city_lkup_key:
+                    matched_reference = county_code_map[ref_city_lkup_key]
+                    print('MATCH: {}'.format(matched_reference))
+                    location_data['city_code'] = matched_reference.get('city_code')
+                    location_data['county_code'] = matched_reference.get('county_code')
+                    location_data['state_code'] = matched_reference('state_code')
+                    location_data['city_name'] = matched_reference('city_name')
+                    location_data['county_name'] = matched_reference('county_name')
+
+
 
             # self.fill_missing_state_data() ** For USA only
             if location_data.get('country_code') == 'USA' and \
@@ -427,7 +447,7 @@ def get_or_create_location_pre_bulk(location_map, row, location_value_map):
                 address_line2 = location_data.get('address_line2'),
                 address_line3 = location_data.get('address_line3'),
                 foreign_location_description = location_data.get('foreign_location_description'),
-                zip4 = '8675309',
+                zip4 = 'poop',
                 zip_4a = location_data.get('zip_4a'),
                 congressional_code = location_data.get('congressional_code'),
                 performance_code = location_data.get('performance_code'),
