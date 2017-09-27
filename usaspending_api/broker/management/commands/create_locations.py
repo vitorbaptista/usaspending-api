@@ -2,6 +2,7 @@ import logging
 import timeit
 from datetime import datetime
 import sys
+import re
 from django.db.models import F, Q
 from django.core.management.base import BaseCommand
 from django.db import connections, transaction as db_transaction
@@ -34,18 +35,34 @@ This is a county code map that needs to be created anytime this file is loaded s
 from memory.
 """
 county_code_columns = ['city_code', 'county_code', 'state_code', 'city_name', 'county_name']
-county_code_map = {}
 
-for _city in RefCityCountyCode.objects.all():
-    _key = ''
-    _value = {}
-    for _column in county_code_columns:
-        _column_value = getattr(_city, _column, '')
-        _value[_column] = _column_value
-        if _column_value:
-            _key += _column_value.lower()
-    county_code_map[_key] = _value
+regex_solution = True
+dict_subset_solution = False
 
+if dict_subset_solution:
+    county_code_map = {}
+    for _city in RefCityCountyCode.objects.all():
+        _key = ''
+        _value = {}
+        for _column in county_code_columns:
+            _column_value = getattr(_city, _column, '')
+            _value[_column] = _column_value
+            if _column_value:
+                _key += _column_value.lower()
+        county_code_map[_key] = _value
+elif regex_solution:
+    county_code_map = {}
+    for _city in RefCityCountyCode.objects.all():
+        key = "_".join([getattr(_city, col, '') for col in county_code_columns])
+        dict = {col: getattr(_city, col, '') for col in county_code_columns}
+        county_code_map[key] = dict
+
+
+def dict_is_subset(d1, d2):
+    return set(d1.items()) <= set(d2.items())
+
+def dict_in_mapping(regex, mapping):
+    return regex if re.match(regex, mapping) else None
 
 class Command(BaseCommand):
     help = "Create Locations from Location data in the Broker."
@@ -404,17 +421,33 @@ def get_or_create_location_pre_bulk(location_map, row, location_value_map):
                 ref_city_lkup_key = location_data.get('city_code', '') + location_data.get('county_code', '') + \
                                     location_data.get('state_code', '') + location_data.get('city_name', '') + \
                                     location_data.get('county_name', '')
-                print(ref_city_lkup_key)
-                print('KEY: {}'.format(ref_city_lkup_key))
+                ref_city_lkup_key = ref_city_lkup_key.lower()
+                ref_city_lkup_dict = {}
+                for _column in county_code_columns:
+                    _column_value = location_data.get(_column, '')
+                    if _column_value:
+                        ref_city_lkup_dict[_column] = _column_value
 
-                if ref_city_lkup_key:
-                    matched_reference = county_code_map[ref_city_lkup_key]
-                    print('MATCH: {}'.format(matched_reference))
-                    location_data['city_code'] = matched_reference.get('city_code')
-                    location_data['county_code'] = matched_reference.get('county_code')
-                    location_data['state_code'] = matched_reference('state_code')
-                    location_data['city_name'] = matched_reference('city_name')
-                    location_data['county_name'] = matched_reference('county_name')
+                if regex_solution:
+                    values = [ref_city_lkup_dict[col] if col in ref_city_lkup_dict else ".*" for col in county_code_columns]
+                    regex = "_".join(values)
+
+                if ref_city_lkup_dict:
+                    if dict_subset_solution:
+                        matched_reference = list(filter(lambda d: d[0] if dict_is_subset(ref_city_lkup_dict, d[1]) else None, county_code_map.items()))
+                    elif regex_solution:
+                        matched_reference = [dict for key, dict in county_code_map.items() if re.match(regex, key)]
+                    # print(matched_reference)
+                    if len(matched_reference) == 1:
+                        if dict_subset_solution:
+                            matched_reference = matched_reference[0][1]
+                        elif regex_solution:
+                            matched_reference = matched_reference[0]
+                        location_data['city_code'] = matched_reference.get('city_code')
+                        location_data['county_code'] = matched_reference.get('county_code')
+                        location_data['state_code'] = matched_reference.get('state_code')
+                        location_data['city_name'] = matched_reference.get('city_name')
+                        location_data['county_name'] = matched_reference.get('county_name')
 
 
 
